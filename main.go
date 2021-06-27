@@ -14,9 +14,6 @@ import (
 )
 
 const (
-	MAX_PAGE_SIZE            = 50
-	DEFAULT_PAGE_SIZE        = 20
-	DEFAULT_PAGE_NUM         = 1
 	DEFAULT_QUERY_PARAM_NAME = "q"
 )
 
@@ -87,8 +84,6 @@ func main() {
 		logger.Println("No error reading Get request body.")
 	}
 
-	// books = []book{}
-
 	jsonErr := json.Unmarshal(body, &books)
 	if jsonErr != nil {
 		log.Fatal(jsonErr)
@@ -104,40 +99,44 @@ func main() {
 }
 
 func IsStringInBook(s string, b *book) (bool, error) {
+	// case insensitive REGEX matcher! Looks for the provided string as a partial search
 	searchPattern, regexErr := regexp.Compile("(?i)" + regexp.QuoteMeta(s))
+	// pass all results if there is a regex error
 	if regexErr != nil {
+		log.Fatal(regexErr)
 		return true, regexErr
 	}
+
 	// don't filter if there are fewer than 3 characters
 	if len(s) < 3 {
 		return true, nil
 	}
 
-	// object checking -- probably need to throw an error
+	// do we have a valid book?
 	if b == nil {
 		return false, errors.New("Book Does Not Exist")
 	}
 
-	// tag search
+	// tag search, include when matched
 	for _, tag := range b.Tags {
 		if searchPattern.MatchString(tag) {
 			return true, nil
 		}
 	}
 
-	// title search
+	// title search, include when matched
 	if searchPattern.MatchString(b.Title) {
 		return true, nil
 	}
 
-	// author search
+	// author search, include when matched
 	for _, author := range b.Authors {
 		if searchPattern.MatchString(author.Name) {
 			return true, nil
 		}
 	}
 
-	// no match
+	// no match - don't include
 	return false, nil
 }
 
@@ -146,19 +145,32 @@ func Search(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Debug-Total-Num-Books", strconv.FormatInt(int64(len(books)), 10))
 
 	filteredBooks := []book{}
+
+	// find the query string
 	keys, ok := r.URL.Query()[DEFAULT_QUERY_PARAM_NAME]
+
 	if !ok || len(keys) < 1 {
 		filteredBooks = books
 	} else {
+
+		// Only return results that match all of the keys
 		for _, buk := range books {
-			check, err := IsStringInBook(keys[0], &buk)
-			if err != nil {
-				logger.Fatal(err)
-			} else if check {
+			metaCheck, _ := IsStringInBook(keys[0], &buk)
+			for _, key := range keys {
+				check, err := IsStringInBook(key, &buk)
+				if err != nil {
+					log.Fatal(err)
+				}
+				metaCheck = (check && metaCheck)
+			}
+
+			if metaCheck {
 				filteredBooks = append(filteredBooks, buk)
 			}
 		}
-		logger.Printf("Request: \"%v\"", keys[0])
+
+		// debug output
+		logger.Printf("Request: \"%v\"", keys)
 		logger.Printf("Filtered Num of books: %v\n", len(filteredBooks))
 	}
 
